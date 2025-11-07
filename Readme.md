@@ -45,7 +45,6 @@ Responses are simple text bodies, with `200 OK` on success and `404 Not Found` w
 
 
 ### Compile
-A minimal sample g++ command (adjust sources as needed):
 ```bash
 g++ -std=c++17 -O2 -g -pthread     -Iinclude     -I/usr/include/postgresql     -L/usr/lib/x86_64-linux-gnu     src/main.cpp src/server.cpp src/cache.cpp src/database.cpp src/threadpool.cpp     -o build/kv_server     -lpq
 
