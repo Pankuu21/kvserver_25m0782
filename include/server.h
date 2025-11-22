@@ -4,11 +4,14 @@
 #include "threadpool.h"
 #include "cache.h"
 #include "database.h"
+#include "db_pool.h"
+
 
 class HTTPServer {
 public:
-    HTTPServer(int port, size_t num_threads, size_t cache_capacity, 
-               const std::string& db_conn_string);
+    HTTPServer(int port, size_t num_threads, size_t cache_capacity,
+           const std::string& db_conn_string, size_t db_pool_size = 16);
+;
     ~HTTPServer();
     
     void start();
@@ -21,7 +24,8 @@ private:
     
     std::unique_ptr<ThreadPool> thread_pool_;
     std::unique_ptr<LRUCache> cache_;
-    std::unique_ptr<Database> db_;
+    std::unique_ptr<DBConnectionPool> db_pool_;
+
     
     void accept_loop();
     void handle_client(int client_fd);

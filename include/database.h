@@ -1,3 +1,4 @@
+// database.h
 #pragma once
 #include <string>
 #include <optional>
@@ -20,5 +21,4 @@ private:
     std::mutex mutex_;
     
     bool execute(const std::string& query);
-    std::string escape_sql(const std::string& str);
 };
