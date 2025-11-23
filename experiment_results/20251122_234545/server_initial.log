@@ -1,0 +1,23 @@
+NOTICE:  relation "kv_store" already exists, skipping
+NOTICE:  relation "kv_store" already exists, skipping
+NOTICE:  relation "kv_store" already exists, skipping
+NOTICE:  relation "kv_store" already exists, skipping
+NOTICE:  relation "kv_store" already exists, skipping
+NOTICE:  relation "kv_store" already exists, skipping
+NOTICE:  relation "kv_store" already exists, skipping
+NOTICE:  relation "kv_store" already exists, skipping
+NOTICE:  relation "kv_store" already exists, skipping
+NOTICE:  relation "kv_store" already exists, skipping
+NOTICE:  relation "kv_store" already exists, skipping
+NOTICE:  relation "kv_store" already exists, skipping
+NOTICE:  relation "kv_store" already exists, skipping
+NOTICE:  relation "kv_store" already exists, skipping
+NOTICE:  relation "kv_store" already exists, skipping
+NOTICE:  relation "kv_store" already exists, skipping
+Starting KV Server...
+Port: 8080
+Threads: 8
+Cache Capacity: 200000
+Server started on port 8080
+
+Shutting down...

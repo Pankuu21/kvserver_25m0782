@@ -1,0 +1,5 @@
+Requests: 379493/379493 (GETs: 379493)
+Throughput: 7193.32 ops/sec
+Avg latency: 0.276212 ms
+P99 latency: 0 ms
+Hit rate: 100% (379493/379493)

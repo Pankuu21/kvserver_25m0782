@@ -49,52 +49,140 @@ struct Metrics {
     }
 };
 
-bool http_request(const std::string& method, const std::string& path, 
-                  const std::string& body, long long* latency_us, bool* is_cache_hit) {
+// Persistent connection class
+class PersistentConnection {
+public:
+    PersistentConnection() : fd_(-1) {}
+    
+    ~PersistentConnection() {
+        close_connection();
+    }
+    
+    bool connect() {
+        if (fd_ >= 0) return true;  // already connected
+        
+        fd_ = socket(AF_INET, SOCK_STREAM, 0);
+        if (fd_ < 0) return false;
+        
+        struct timeval timeout = {5, 0};
+        setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+        setsockopt(fd_, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+        
+        // Enable TCP keepalive
+        int keepalive = 1;
+        setsockopt(fd_, SOL_SOCKET, SO_KEEPALIVE, &keepalive, sizeof(keepalive));
+        
+        sockaddr_in addr{};
+        addr.sin_family = AF_INET;
+        addr.sin_port = htons(PORT);
+        inet_pton(AF_INET, HOST.c_str(), &addr.sin_addr);
+        
+        if (::connect(fd_, (sockaddr*)&addr, sizeof(addr)) < 0) {
+            close(fd_);
+            fd_ = -1;
+            return false;
+        }
+        
+        return true;
+    }
+    
+    void close_connection() {
+        if (fd_ >= 0) {
+            close(fd_);
+            fd_ = -1;
+        }
+    }
+    
+    bool send_request(const std::string& method, const std::string& path, 
+                     const std::string& body, std::string& response) {
+        if (fd_ < 0 && !connect()) {
+            return false;
+        }
+        
+        // Build HTTP request with keep-alive
+        std::string req = method + " " + path + " HTTP/1.1\r\n";
+        req += "Host: " + HOST + "\r\n";
+        req += "Connection: keep-alive\r\n";
+        if (!body.empty()) {
+            req += "Content-Length: " + std::to_string(body.size()) + "\r\n";
+        }
+        req += "\r\n" + body;
+        
+        // Send request
+        ssize_t sent = send(fd_, req.data(), req.size(), MSG_NOSIGNAL);
+        if (sent < 0) {
+            close_connection();
+            return false;
+        }
+        
+        // Receive response
+        response.clear();
+        char buf[8192];
+        size_t content_length = 0;
+        bool headers_complete = false;
+        size_t header_end_pos = 0;
+        
+        while (true) {
+            ssize_t n = recv(fd_, buf, sizeof(buf), 0);
+            if (n <= 0) {
+                close_connection();
+                return false;
+            }
+            
+            response.append(buf, n);
+            
+            // Parse headers to get Content-Length
+            if (!headers_complete) {
+                header_end_pos = response.find("\r\n\r\n");
+                if (header_end_pos != std::string::npos) {
+                    headers_complete = true;
+                    
+                    // Extract Content-Length
+                    size_t cl_pos = response.find("Content-Length:");
+                    if (cl_pos != std::string::npos) {
+                        size_t cl_start = cl_pos + 15;
+                        size_t cl_end = response.find("\r\n", cl_start);
+                        std::string cl_str = response.substr(cl_start, cl_end - cl_start);
+                        content_length = std::stoull(cl_str);
+                    }
+                }
+            }
+            
+            // Check if we have received the complete response
+            if (headers_complete) {
+                size_t body_start = header_end_pos + 4;
+                size_t body_received = response.size() - body_start;
+                if (body_received >= content_length) {
+                    break;
+                }
+            }
+        }
+        
+        return true;
+    }
+    
+private:
+    int fd_;
+};
+
+bool http_request_persistent(PersistentConnection& conn, const std::string& method, 
+                             const std::string& path, const std::string& body, 
+                             long long* latency_us, bool* is_cache_hit) {
     auto t0 = std::chrono::high_resolution_clock::now();
     
-    int fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (fd < 0) return false;
-    
-    struct timeval timeout = {5, 0};
-    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
-    
-    sockaddr_in addr{};
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(PORT);
-    inet_pton(AF_INET, HOST.c_str(), &addr.sin_addr);
-    
-    if (connect(fd, (sockaddr*)&addr, sizeof(addr)) < 0) {
-        close(fd);
-        return false;
-    }
-    
-    std::string req = method + " " + path + " HTTP/1.1\r\n";
-    req += "Host: " + HOST + "\r\n";
-    if (!body.empty()) req += "Content-Length: " + std::to_string(body.size()) + "\r\n";
-    req += "Connection: close\r\n\r\n" + body;
-    
-    if (send(fd, req.data(), req.size(), 0) < 0) {
-        close(fd);
-        return false;
-    }
-    
-    std::string resp;
-    char buf[4096];
-    ssize_t n;
-    while ((n = recv(fd, buf, sizeof(buf), 0)) > 0) {
-        resp.append(buf, n);
-    }
-    close(fd);
+    std::string response;
+    bool success = conn.send_request(method, path, body, response);
     
     *latency_us = std::chrono::duration_cast<std::chrono::microseconds>(
         std::chrono::high_resolution_clock::now() - t0).count();
     
+    if (!success) return false;
+    
     if (is_cache_hit) {
-        *is_cache_hit = resp.find("X-Cache-Status: HIT") != std::string::npos;
+        *is_cache_hit = response.find("X-Cache-Status: HIT") != std::string::npos;
     }
     
-    return resp.find("200 OK") != std::string::npos;
+    return response.find("200 OK") != std::string::npos;
 }
 
 class ZipfianGenerator {
@@ -131,6 +219,12 @@ private:
 };
 
 void worker_put(int thread_id, int keys_per_thread, int duration_sec, int total_keys, Metrics& m) {
+    PersistentConnection conn;
+    if (!conn.connect()) {
+        std::cerr << "Thread " << thread_id << ": Failed to connect\n";
+        return;
+    }
+    
     auto start = std::chrono::steady_clock::now();
     int idx = 0;
     
@@ -140,20 +234,22 @@ void worker_put(int thread_id, int keys_per_thread, int duration_sec, int total_
         if (duration_sec == 0 && idx >= keys_per_thread) break;
         
         std::string key = "key_" + std::to_string((thread_id * keys_per_thread + idx) % total_keys);
-
-        // Bigger payload to increase CPU + memory + IO work
-        std::string val = "VALUE_START_" +
-                          std::string(4096, 'A') +
-                          "_END";
+        std::string val = "VALUE_START_" + std::string(4096, 'A') + "_END";
 
         long long lat;
-        bool ok = http_request("PUT", "/kv/" + key, val, &lat, nullptr);
+        bool ok = http_request_persistent(conn, "PUT", "/kv/" + key, val, &lat, nullptr);
         m.add_result(lat, ok, false, false);
         idx++;
     }
 }
 
 void worker_get_all(int thread_id, int keys_per_thread, int duration_sec, int total_keys, Metrics& m) {
+    PersistentConnection conn;
+    if (!conn.connect()) {
+        std::cerr << "Thread " << thread_id << ": Failed to connect\n";
+        return;
+    }
+    
     auto start = std::chrono::steady_clock::now();
     int idx = 0;
     
@@ -166,13 +262,19 @@ void worker_get_all(int thread_id, int keys_per_thread, int duration_sec, int to
         
         long long lat;
         bool hit = false;
-        bool ok = http_request("GET", "/kv/" + key, "", &lat, &hit);
+        bool ok = http_request_persistent(conn, "GET", "/kv/" + key, "", &lat, &hit);
         m.add_result(lat, ok, hit, true);
         idx++;
     }
 }
 
 void worker_get_popular(int thread_id, int keys_per_thread, int duration_sec, int total_keys, Metrics& m) {
+    PersistentConnection conn;
+    if (!conn.connect()) {
+        std::cerr << "Thread " << thread_id << ": Failed to connect\n";
+        return;
+    }
+    
     ZipfianGenerator zipf(total_keys, 1.5);
     auto start = std::chrono::steady_clock::now();
     int idx = 0;
@@ -186,13 +288,19 @@ void worker_get_popular(int thread_id, int keys_per_thread, int duration_sec, in
         
         long long lat;
         bool hit = false;
-        bool ok = http_request("GET", "/kv/" + key, "", &lat, &hit);
+        bool ok = http_request_persistent(conn, "GET", "/kv/" + key, "", &lat, &hit);
         m.add_result(lat, ok, hit, true);
         idx++;
     }
 }
 
 void worker_mixed(int thread_id, int keys_per_thread, int duration_sec, int total_keys, Metrics& m) {
+    PersistentConnection conn;
+    if (!conn.connect()) {
+        std::cerr << "Thread " << thread_id << ": Failed to connect\n";
+        return;
+    }
+    
     std::mt19937 gen(std::random_device{}());
     std::uniform_real_distribution<> dist(0.0, 1.0);
     auto start = std::chrono::steady_clock::now();
@@ -207,11 +315,11 @@ void worker_mixed(int thread_id, int keys_per_thread, int duration_sec, int tota
         long long lat;
         
         if (dist(gen) < 0.1) {
-            bool ok = http_request("PUT", "/kv/" + key, "value_" + std::to_string(idx), &lat, nullptr);
+            bool ok = http_request_persistent(conn, "PUT", "/kv/" + key, "value_" + std::to_string(idx), &lat, nullptr);
             m.add_result(lat, ok, false, false);
         } else {
             bool hit = false;
-            bool ok = http_request("GET", "/kv/" + key, "", &lat, &hit);
+            bool ok = http_request_persistent(conn, "GET", "/kv/" + key, "", &lat, &hit);
             m.add_result(lat, ok, hit, true);
         }
         idx++;
@@ -266,9 +374,6 @@ void run_benchmark(const std::string& workload,
     std::cout << "P99 latency: " << p99 << " ms\n";
     std::cout << "Hit rate: " << hit_rate << "% (" << m.cache_hits.load() << "/" << gets << ")\n";
 
-    // CSV: timestamp,threads,workload,num_keys,duration,requests,get_requests,
-    //      throughput,avg_latency_ms,p99_latency_ms,hit_rate,
-    //      server_threads,cache_capacity,db_pool_size
     std::time_t now = std::time(nullptr);
     csv << now << ","
         << num_threads << ","
@@ -289,11 +394,9 @@ void run_benchmark(const std::string& workload,
 
 int main(int argc, char* argv[]) {
     int num_keys      = 1000;
-    int num_threads   = 4;         // client threads
+    int num_threads   = 4;
     int duration_sec  = 0;
     std::string workload = "get_all";
-
-    // extra metadata for CSV (about server config)
     int server_threads  = 0;
     int cache_capacity  = 0;
     int db_pool_size    = 0;
@@ -302,10 +405,10 @@ int main(int argc, char* argv[]) {
         if (i + 1 >= argc) break;
         std::string arg = argv[i];
         if (arg == "--keys") num_keys = std::stoi(argv[i + 1]);
-        else if (arg == "--threads") num_threads = std::stoi(argv[i + 1]);            // client threads
+        else if (arg == "--threads") num_threads = std::stoi(argv[i + 1]);
         else if (arg == "--duration") duration_sec = std::stoi(argv[i + 1]);
         else if (arg == "--workload") workload = argv[i + 1];
-        else if (arg == "--server-threads") server_threads = std::stoi(argv[i + 1]);  // from server config
+        else if (arg == "--server-threads") server_threads = std::stoi(argv[i + 1]);
         else if (arg == "--cache-size")     cache_capacity = std::stoi(argv[i + 1]);
         else if (arg == "--db-pool")        db_pool_size   = std::stoi(argv[i + 1]);
     }
