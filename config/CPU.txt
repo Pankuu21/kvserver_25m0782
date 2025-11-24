@@ -1,0 +1,17 @@
+CPU-Bound Configuration (GET_POPULAR)
+
+CPU Pinning
+POSTGRES_CORES="0-1" # 2 cores
+SERVER_CORES="2-5" # 4 cores
+CLIENT_CORES="6-7" # 2 cores
+
+
+Server Configuration
+SERVER_THREADS=4 # Match server cores (1:1 ratio)
+CACHE_SIZE=100000 # Large cache (10× key space)
+DB_POOL_SIZE=16
+
+Workload
+WORKLOAD="get_popular" # Zipfian distribution (α=1.5)
+NUM_KEYS=10000 # Small working set
+LOAD_LEVELS=(1 2 4 6 8 12 16 32)

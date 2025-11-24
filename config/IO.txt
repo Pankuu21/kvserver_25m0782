@@ -1,0 +1,30 @@
+# ======================== CPU PINNING ========================
+# Format: "start-end" or "core1,core2,core3"
+
+POSTGRES_CORES="0-1"      # Cores for PostgreSQL
+SERVER_CORES="2-5"        # Cores for KV server
+CLIENT_CORES="6-7"        # Cores for load generator
+
+# ======================== SERVER CONFIGURATION ========================
+
+SERVER_PORT=8080
+SERVER_THREADS=32          # Number of worker threads in server
+CACHE_SIZE=1          # In-memory cache size (number of entries)
+DB_POOL_SIZE=32          # Database connection pool size
+
+# ======================== EXPERIMENT PARAMETERS ========================
+
+# Workloads to test (space-separated)
+WORKLOADS=("get_all" )
+
+# Load levels (number of concurrent client threads)
+LOAD_LEVELS=( 1 2 4  8 16 32 64 90 128)
+
+# Number of unique keys in database
+NUM_KEYS=10000
+
+# Duration of each experiment in seconds (minimum 300 for project requirements)
+DURATION=300
+
+# Cooldown period between experiments in seconds
+COOLDOWN=1

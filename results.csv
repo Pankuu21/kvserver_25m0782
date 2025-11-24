@@ -1,2 +1,0 @@
-timestamp,threads,workload,num_keys,duration,requests,get_requests,throughput,avg_latency_ms,p99_latency_ms,hit_rate,server_threads,cache_capacity,db_pool_size
-1763856345,64,get_popular,200000,50,853643,853643,16453.4,0.738469,0,100,8,200000,16

@@ -365,13 +365,11 @@ void run_benchmark(const std::string& workload,
     double hit_rate   = (gets > 0) ? 100.0 * m.cache_hits.load() / gets : 0.0;
     
     std::sort(m.latencies_us.begin(), m.latencies_us.end());
-    long long p99 = (m.latencies_us.size() > 0) ?
-        m.latencies_us[(size_t)(m.latencies_us.size() * 0.99)] / 1000 : 0;
+    
     
     std::cout << "Requests: " << success << "/" << total << " (GETs: " << gets << ")\n";
     std::cout << "Throughput: " << throughput << " ops/sec\n";
     std::cout << "Avg latency: " << avg_lat << " ms\n";
-    std::cout << "P99 latency: " << p99 << " ms\n";
     std::cout << "Hit rate: " << hit_rate << "% (" << m.cache_hits.load() << "/" << gets << ")\n";
 
     std::time_t now = std::time(nullptr);
@@ -384,7 +382,7 @@ void run_benchmark(const std::string& workload,
         << gets << ","
         << throughput << ","
         << avg_lat << ","
-        << p99 << ","
+        
         << hit_rate << ","
         << server_threads << ","
         << cache_capacity << ","
@@ -417,7 +415,7 @@ int main(int argc, char* argv[]) {
     
     if (csv.tellp() == 0) {
         csv << "timestamp,threads,workload,num_keys,duration,requests,get_requests,"
-               "throughput,avg_latency_ms,p99_latency_ms,hit_rate,"
+               "throughput,avg_latency_ms,hit_rate,"
                "server_threads,cache_capacity,db_pool_size\n";
     }
     

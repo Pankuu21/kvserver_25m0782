@@ -1,0 +1,11 @@
+for PID in $(pgrep -f "postgres"); do
+    taskset -cp 0-1 "$PID" >/dev/null 2>&1 || true
+done
+
+psql -U postgres -d kv_db
+
+
+
+taskset -c 2 ./build/kv_server 8080 8 200000
+
+taskset -c 4-7 ./build/load_generator --workload put_all --keys 100000 --threads 60 --duration 300
